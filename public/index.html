@@ -1,81 +1,230 @@
-app.get("/load/:id", async (req, res) => {
-  const projectId = req.params.id;
-  try {
-    const [projectRows] = await pool.query(
-      "SELECT * FROM projects WHERE id = ?",
-      [projectId]
-    );
-    const [taskRows] = await pool.query(
-      "SELECT * FROM tasks WHERE project_id = ? ORDER BY start ASC",
-      [projectId]
-    );
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <title>Projekt-Zeitplan</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- vis-timeline -->
+  <link rel="stylesheet" href="https://unpkg.com/vis-timeline@latest/dist/vis-timeline-graph2d.min.css">
+  <script src="https://unpkg.com/vis-data@latest/peer/umd/vis-data.min.js"></script>
+  <script src="https://unpkg.com/vis-timeline@latest/peer/umd/vis-timeline-graph2d.min.js"></script>
+  <style>
+    :root { --bg:#fff; --fg:#111; --muted:#777; --grid:#ddd; --zebra:#f6f6f6; --accent:#111; }
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font-family:Helvetica,Arial,sans-serif;}
+    .wrap{max-width:1400px;margin:0 auto;padding:32px;}
+    .head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;}
+    .left{display:flex;gap:16px;flex-wrap:wrap}
+    .cell{min-width:160px}
+    .cell .val{font-size:14px;letter-spacing:.2px}
+    .right{min-width:160px;text-align:right}
+    .right .val{font-size:14px}
+    .title{font-size:20px;margin:0 0 8px 0;letter-spacing:.2px}
+    .frame{position:relative; width:100%; aspect-ratio:16/9; border:1px solid #eee; background:#fff; overflow:hidden; border-radius:12px; padding:16px;}
+    #timeline{position:absolute; inset:64px 16px 16px 16px;}
+    .bands{position:absolute; left:16px; right:16px; top:16px; height:40px; display:grid; grid-template-rows:20px 20px;}
+    .bands .row{display:flex;}
+    .bands .cell{flex:0 0 auto; text-align:center; font-size:12px; color:var(--muted);}
+    .today{position:absolute; top:0; bottom:0; width:1px; background:#000; opacity:.7;}
+    .zebra{pointer-events:none; position:absolute; left:16px; right:16px; bottom:16px; top:64px; }
+    .legend{display:flex; gap:12px; margin-top:12px; align-items:center; flex-wrap:wrap;}
+    .dot{width:10px;height:10px;border-radius:2px;display:inline-block;margin-right:6px}
+    .toolbar{display:flex; gap:8px; align-items:center; margin:12px 0 4px}
+    input,button{font:inherit;border:1px solid #ddd;border-radius:8px;padding:6px 10px}
+    button{cursor:pointer;background:#111;color:#fff;border-color:#111}
+    button.secondary{background:#fff;color:#111}
+    .vis-item.weekend { background: #f5f5f5; border-color: #f5f5f5; }
+    .vis-time-axis .vis-grid.vis-saturday,
+    .vis-time-axis .vis-grid.vis-sunday { background: #fafafa; }
+    .vis-time-axis .vis-grid.vis-major { border-color: #e6e6e6; }
+    .vis-time-axis .vis-grid.vis-minor { border-color: #f0f0f0; }
+    .vis-item.vis-box { border-radius:10px; border-width:1px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1 class="title">Projekt‑Zeitplan</h1>
 
-    console.log("LOAD projectId=", projectId);
-    console.log("DB projectRows:", projectRows);
-    console.log("DB taskRows:", taskRows);
+  <!-- Kopfzeile -->
+  <div class="head">
+    <div class="left">
+      <div class="cell"><div class="val" id="vKunde">Kunde</div></div>
+      <div class="cell"><div class="val" id="vTitel">Titel</div></div>
+      <div class="cell"><div class="val" id="vDatum">Datum</div></div>
+    </div>
+    <div class="right">
+      <div class="val">Off Office</div>
+    </div>
+  </div>
 
-    // Fallback: Wenn keine Tasks in der DB sind, liefere Testdaten zurück,
-    // damit das Frontend sofort etwas anzeigen kann.
-    if (!taskRows || taskRows.length === 0) {
-      console.log("Keine Tasks gefunden. Sende Testdaten zurück.");
-      return res.json({
-        project: projectRows[0] || {
-          kunde: "Demo-Kunde",
-          titel: "Demo-Projekt",
-          datum: new Date(),
-          off_office: "Off Office",
-          notizen: "Fallback-Daten"
-        },
-        tasks: [
-          { name: "Videoshooting", category: "Produktion", start: "2023-08-24", end: "2023-08-25", responsible: "Max Mustermann" },
-          { name: "Editing Videoshooting", category: "Produktion", start: "2023-08-26", end: "2023-09-05", responsible: "Max Mustermann" },
-          { name: "Programmierstart", category: "Entwicklung", start: "2023-09-15", end: "2023-10-10", responsible: "Anna Müller" },
-          { name: "Launch", category: "Launch", start: "2023-10-15", end: "2023-10-15", responsible: "Projektteam" }
-        ]
-      });
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <label>Projekt-ID:&nbsp;<input id="projectId" type="number" style="width:120px" value="1"></label>
+    <button id="btnLoad">Laden</button>
+    <button id="btnToday" class="secondary">Heute</button>
+  </div>
+
+  <!-- 16:9 Frame -->
+  <div class="frame">
+    <div class="bands">
+      <div class="row" id="months"></div>
+      <div class="row" id="weeks"></div>
+    </div>
+    <div id="timeline"></div>
+    <div class="zebra" id="zebra"></div>
+    <div class="today" id="todayLine" style="display:none"></div>
+  </div>
+
+  <div class="legend" id="legend"></div>
+</div>
+
+<script>
+const API_BASE = window.location.hostname === "localhost"
+  ? "http://localhost:5001"
+  : window.location.origin;
+const MS_DAY = 24*60*60*1000;
+function toDate(d){ return (d instanceof Date) ? d : new Date(d); }
+function fmt(d){ const x = toDate(d); return x.toLocaleDateString('de-DE'); }
+function startOfDay(d){ d = toDate(d); d.setHours(0,0,0,0); return d; }
+
+function getISOWeek(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
+  return Math.ceil((((d - yearStart) / 86400000) + 1)/7);
+}
+function rangeDays(a,b){ const out=[]; let t=startOfDay(a).getTime(); const end=startOfDay(b).getTime(); while(t<=end){ out.push(new Date(t)); t+=MS_DAY; } return out; }
+function monthLabel(d){ return d.toLocaleDateString('de-DE', { month:'long', year:'numeric' }); }
+function buildColorMap(categories){ const palette = ["#111","#555","#999","#c0c0c0","#7f7f7f"]; const map={}; categories.forEach((c,i)=>map[c]=palette[i%palette.length]); return map; }
+
+function weekendItems(from, to){
+  const out=[];
+  let cur = startOfDay(from);
+  while(cur<=to){
+    const day = cur.getDay();
+    if(day===6){
+      const sat = new Date(cur);
+      const sunEnd = new Date(cur.getTime()+2*MS_DAY);
+      out.push({ id:'we-'+sat.toISOString(), start:sat, end:sunEnd, type:'background', className:'weekend' });
     }
+    cur = new Date(cur.getTime()+MS_DAY);
+  }
+  return out;
+}
+function drawZebra(){
+  const el = document.getElementById('zebra');
+  el.style.background = "repeating-linear-gradient(0deg, rgba(0,0,0,0.04), rgba(0,0,0,0.04) 40px, transparent 40px, transparent 80px)";
+}
+function buildBands(containerIdMonths, containerIdWeeks, from, to){
+  const monthsEl = document.getElementById(containerIdMonths);
+  const weeksEl = document.getElementById(containerIdWeeks);
+  monthsEl.innerHTML = ""; weeksEl.innerHTML = "";
+  let cursor = new Date(from.getFullYear(), from.getMonth(), 1);
+  while(cursor <= to){
+    const nextMonth = new Date(cursor.getFullYear(), cursor.getMonth()+1, 1);
+    const cell = document.createElement('div');
+    cell.className="cell";
+    const width = Math.max(60, (nextMonth - cursor) / (to - from) * (monthsEl.parentElement.clientWidth));
+    cell.style.width = width + "px";
+    cell.textContent = monthLabel(cursor);
+    monthsEl.appendChild(cell);
+    cursor = nextMonth;
+  }
+  let day = new Date(from);
+  day.setDate(day.getDate() - ((day.getDay()+6)%7));
+  while(day<=to){
+    const wk = getISOWeek(day);
+    const wkEnd = new Date(day.getTime()+6*MS_DAY);
+    const cell = document.createElement('div');
+    cell.className="cell";
+    const end = (wkEnd<to)? wkEnd : to;
+    const width = Math.max(40, (end - day + MS_DAY) / (to - from) * (weeksEl.parentElement.clientWidth));
+    cell.style.width = width + "px";
+    cell.textContent = `W${wk} · ${day.getDate()}–${end.getDate()}`;
+    weeksEl.appendChild(cell);
+    day = new Date(day.getTime()+7*MS_DAY);
+  }
+}
+function positionToday(from, to){
+  const el = document.getElementById('todayLine');
+  const frame = document.querySelector('.frame');
+  const left = 16, right = 16;
+  const usable = frame.clientWidth - left - right;
+  const now = new Date();
+  const clamped = Math.min(Math.max(now.getTime(), from.getTime()), to.getTime());
+  const px = left + ((clamped - from) / (to - from)) * usable;
+  el.style.left = px + "px"; el.style.display = "block";
+}
 
-    // Normale Antwort mit DB-Daten
-    res.json({
-      project: projectRows[0] || null,
-      tasks: taskRows
+let timeline;
+async function loadProject(id){
+  const res = await fetch(`${API_BASE}/load/${id}`);
+  if(!res.ok){ alert("Projekt nicht gefunden"); return; }
+  const data = await res.json();
+  console.log("DATA", data);
+
+  document.getElementById('vKunde').textContent = data.project.kunde || "";
+  document.getElementById('vTitel').textContent = data.project.titel || "";
+  document.getElementById('vDatum').textContent = (data.project.datum? fmt(data.project.datum):"");
+
+  const starts = data.tasks.map(t=>new Date(t.start));
+  const ends = data.tasks.map(t=>new Date(t.end_date || t.end || t.start));
+  const min = new Date(Math.min.apply(null, starts));
+  const max = new Date(Math.max.apply(null, ends));
+  const from = new Date(min.getTime() - 7*MS_DAY);
+  const to = new Date(max.getTime() + 7*MS_DAY);
+
+  const categories = Array.from(new Set(data.tasks.map(t=>t.category))).filter(Boolean);
+  const colorMap = buildColorMap(categories);
+
+  const items = new vis.DataSet();
+  data.tasks.forEach((t,i)=>{
+    items.add({
+      id: t.id || "t"+i,
+      content: `<div style="font-size:12px">${t.name}<br><span style="color:#777">${t.responsible||""}</span></div>`,
+      start: t.start,
+      end: t.end_date || t.end || t.start,
+      className: "task",
+      style: `background:#fff;border:1px solid ${colorMap[t.category]||'#111'}`
     });
-  } catch (err) {
-    console.error("Fehler in /load/:id", err);
-    res.status(500).json({ error: "Fehler beim Laden" });
-  }
+  });
+  weekendItems(from,to).forEach(w=>items.add(w));
+
+  const container = document.getElementById('timeline');
+  if(timeline){ timeline.destroy(); }
+  timeline = new vis.Timeline(container, items, {
+    stack: false,
+    orientation: 'top',
+    showMajorLabels: true,
+    zoomMin: MS_DAY*2,
+    zoomMax: MS_DAY*365,
+    start: from, end: to, min: from, max: new Date(to.getTime()+MS_DAY),
+    selectable: false, margin: { item: 8, axis: 8 }
+  });
+  timeline.fit();
+
+  buildBands('months','weeks',from,to);
+  drawZebra();
+  positionToday(from,to);
+
+  const legend = document.getElementById('legend');
+  legend.innerHTML = "";
+  categories.forEach(c=>{
+    const span = document.createElement('span');
+    span.innerHTML = `<span class="dot" style="background:${colorMap[c]}"></span>${c}`;
+    legend.appendChild(span);
+  });
+}
+
+document.getElementById('btnLoad').addEventListener('click', ()=>{
+  const id = Number(document.getElementById('projectId').value || "1");
+  loadProject(id);
 });
-
-// Seed-Route: legt Demo-Tasks für ein Projekt an, wenn noch keine existieren.
-// Aufruf: GET /seed oder /seed/:id   (Default-Projekt-ID = 1)
-app.get("/seed/:id?", async (req, res) => {
-  const projectId = req.params.id ? Number(req.params.id) : 1;
-  try {
-    const [existing] = await pool.query(
-      "SELECT COUNT(*) AS cnt FROM tasks WHERE project_id = ?",
-      [projectId]
-    );
-    if (existing[0].cnt > 0) {
-      return res.json({ ok: true, seeded: false, message: "Es existieren bereits Tasks für dieses Projekt." });
-    }
-
-    const demoTasks = [
-      ["Videoshooting", "Produktion", "2023-08-24", "2023-08-25", "Max Mustermann", ""],
-      ["Editing Videoshooting", "Produktion", "2023-08-26", "2023-09-05", "Max Mustermann", ""],
-      ["Programmierstart", "Entwicklung", "2023-09-15", "2023-10-10", "Anna Müller", ""],
-      ["Launch", "Launch", "2023-10-15", "2023-10-15", "Projektteam", ""]
-    ];
-
-    for (const t of demoTasks) {
-      await pool.query(
-        "INSERT INTO tasks (project_id, name, category, start, end_date, responsible, dependencies) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [projectId, t[0], t[1], t[2], t[3], t[4], t[5]]
-      );
-    }
-
-    return res.json({ ok: true, seeded: true, count: demoTasks.length, projectId });
-  } catch (err) {
-    console.error("Fehler in /seed", err);
-    res.status(500).json({ ok: false, error: "Fehler beim Seeden" });
-  }
+document.getElementById('btnToday').addEventListener('click', ()=>{
+  const id = Number(document.getElementById('projectId').value || "1");
+  loadProject(id);
 });
+loadProject(1);
+</script>
+</body>
+</html>
