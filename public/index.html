@@ -4,10 +4,12 @@
   <meta charset="utf-8" />
   <title>Projekt-Zeitplan</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- vis-timeline -->
-  <link rel="stylesheet" href="https://unpkg.com/vis-timeline@latest/dist/vis-timeline.min.css">
-  <script src="https://unpkg.com/vis-data@latest/dist/vis-data.min.js"></script>
-  <script src="https://unpkg.com/vis-timeline@latest/dist/vis-timeline.min.js"></script>
+  <!-- vis-timeline (jsDelivr pinned versions + Moment locale) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vis-timeline@7.7.0/dist/vis-timeline-graph2d.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/moment@2.29.4/min/moment-with-locales.min.js"></script>
+  <script>moment.locale('de');</script>
+  <script src="https://cdn.jsdelivr.net/npm/vis-data@7.1.2/peer/umd/vis-data.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vis-timeline@7.7.0/dist/vis-timeline-graph2d.min.js"></script>
   <style>
     :root { --bg:#fff; --fg:#111; --muted:#777; --grid:#ddd; --zebra:#f6f6f6; --accent:#111; }
     html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font-family:Helvetica,Arial,sans-serif;}
@@ -19,13 +21,13 @@
     .right{min-width:160px;text-align:right}
     .right .val{font-size:14px}
     .title{font-size:20px;margin:0 0 8px 0;letter-spacing:.2px}
-    .frame{position:relative; width:100%; aspect-ratio:16/9; border:1px solid #eee; background:#fff; overflow:hidden; border-radius:12px; padding:16px;}
-    #timeline{position:absolute; inset:64px 16px 16px 16px;}
+    .frame{position:relative; width:100%; aspect-ratio:16/9; min-height:560px; border:1px solid #eee; background:#fff; overflow:hidden; border-radius:12px; padding:16px;}
+    #timeline{position:absolute; inset:64px 16px 16px 16px; z-index:2;}
     .bands{position:absolute; left:16px; right:16px; top:16px; height:40px; display:grid; grid-template-rows:20px 20px;}
     .bands .row{display:flex;}
     .bands .cell{flex:0 0 auto; text-align:center; font-size:12px; color:var(--muted);}
     .today{position:absolute; top:0; bottom:0; width:1px; background:#000; opacity:.7;}
-    .zebra{pointer-events:none; position:absolute; left:16px; right:16px; bottom:16px; top:64px; }
+    .zebra{pointer-events:none; position:absolute; left:16px; right:16px; bottom:16px; top:64px; z-index:1;}
     .legend{display:flex; gap:12px; margin-top:12px; align-items:center; flex-wrap:wrap;}
     .dot{width:10px;height:10px;border-radius:2px;display:inline-block;margin-right:6px}
     .toolbar{display:flex; gap:8px; align-items:center; margin:12px 0 4px}
@@ -201,6 +203,7 @@ async function loadProject(id){
     start: from, end: to, min: from, max: new Date(to.getTime()+MS_DAY),
     selectable: false, margin: { item: 8, axis: 8 }
   });
+  timeline.redraw();
   timeline.fit();
 
   buildBands('months','weeks',from,to);
