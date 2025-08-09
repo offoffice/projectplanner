@@ -19,13 +19,13 @@
     .right{min-width:160px;text-align:right}
     .right .val{font-size:14px}
     .title{font-size:20px;margin:0 0 8px 0;letter-spacing:.2px}
-    .frame{position:relative; width:100%; aspect-ratio:16/9; border:1px solid #eee; background:#fff; overflow:hidden; border-radius:12px; padding:16px;}
-    #timeline{position:absolute; inset:64px 16px 16px 16px;}
+    .frame{ position:relative; width:100%; aspect-ratio:16/9; min-height:560px; border:1px solid #eee; background:#fff; overflow:hidden; border-radius:12px; padding:16px; }
+    #timeline{ position:absolute; inset:64px 16px 16px 16px; z-index:2; }
     .bands{position:absolute; left:16px; right:16px; top:16px; height:40px; display:grid; grid-template-rows:20px 20px;}
     .bands .row{display:flex;}
     .bands .cell{flex:0 0 auto; text-align:center; font-size:12px; color:var(--muted);}
     .today{position:absolute; top:0; bottom:0; width:1px; background:#000; opacity:.7;}
-    .zebra{pointer-events:none; position:absolute; left:16px; right:16px; bottom:16px; top:64px; }
+    .zebra{ pointer-events:none; position:absolute; left:16px; right:16px; bottom:16px; top:64px; z-index:1; }
     .legend{display:flex; gap:12px; margin-top:12px; align-items:center; flex-wrap:wrap;}
     .dot{width:10px;height:10px;border-radius:2px;display:inline-block;margin-right:6px}
     .toolbar{display:flex; gap:8px; align-items:center; margin:12px 0 4px}
@@ -171,11 +171,21 @@ if (!data || !Array.isArray(data.tasks) || data.tasks.length === 0) {
   const container = document.getElementById('timeline');
   if(timeline){ timeline.destroy(); }
   timeline = new vis.Timeline(container, items, {
-    stack: false, orientation: 'top', showMajorLabels: true,
-    zoomMin: MS_DAY*2, zoomMax: MS_DAY*365,
-    start: from, end: to, min: from, max: new Date(to.getTime()+MS_DAY),
-    selectable: false, margin: { item: 8, axis: 8 }
+    stack: false,
+    orientation: 'top',
+    showMajorLabels: true,
+    zoomMin: MS_DAY*2,
+    zoomMax: MS_DAY*365,
+    start: from,
+    end: to,
+    min: from,
+    max: new Date(to.getTime()+MS_DAY),
+    selectable: false,
+    margin: { item: 8, axis: 8 },
+    height: '100%'
   });
+  timeline.redraw();
+  timeline.fit();
   timeline.fit();   // sorgt dafür, dass Items sicher im sichtbaren Bereich landen
   buildBands('months','weeks',from,to);
   drawZebra();
