@@ -3,6 +3,10 @@ import cors from "cors";
 import dotenv from "dotenv";
 import mysql from "mysql2/promise";
 import OpenAI from "openai";
+import path from "path";
+import { fileURLToPath } from "url";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
@@ -12,6 +16,10 @@ const PORT = process.env.PORT || 5000;
 // Middleware
 app.use(cors({ origin: true }));
 app.use(express.json());
+app.use(express.static(path.join(__dirname, "public")));
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
 
 // MySQL-Pool
 const pool = mysql.createPool({
