@@ -75,6 +75,9 @@
 </div>
 
 <script>
+window.onerror = (msg, url, line, col, err) => {
+console.error("JS-Fehler:", msg, url, line, col, err);
+};
 const MS_DAY = 24*60*60*1000;
 function toDate(d){ return (d instanceof Date) ? d : new Date(d); }
 function fmt(d){ const x = toDate(d); return x.toLocaleDateString('de-DE'); }
@@ -136,6 +139,12 @@ async function loadProject(id){
   const res = await fetch(`/load/${id}`); // <— RELATIV! gleiches Origin wie Backend
   if(!res.ok){ alert("Projekt nicht gefunden"); return; }
   const data = await res.json();
+  console.log("DATA", data);
+if (!data || !Array.isArray(data.tasks) || data.tasks.length === 0) {
+  document.getElementById('timeline').innerHTML =
+    '<div style="padding:12px;color:#555">Keine Tasks geladen.</div>';
+  return;
+}
   document.getElementById('vKunde').textContent = data.project.kunde || "";
   document.getElementById('vTitel').textContent = data.project.titel || "";
   document.getElementById('vDatum').textContent = (data.project.datum? fmt(data.project.datum):"");
@@ -167,6 +176,7 @@ async function loadProject(id){
     start: from, end: to, min: from, max: new Date(to.getTime()+MS_DAY),
     selectable: false, margin: { item: 8, axis: 8 }
   });
+  timeline.fit();   // sorgt dafür, dass Items sicher im sichtbaren Bereich landen
   buildBands('months','weeks',from,to);
   drawZebra();
   positionToday(from,to);
