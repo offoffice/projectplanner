@@ -40,43 +40,92 @@
     .vis-time-axis .vis-grid.vis-major { border-color: #e6e6e6; }
     .vis-time-axis .vis-grid.vis-minor { border-color: #f0f0f0; }
     .vis-item.vis-box { border-radius:10px; border-width:1px; }
+
+    /* stronger vertical grid for weeks/months */
+    .vis-time-axis .vis-grid.vis-major { border-color: #cfd4d9; }
+    .vis-time-axis .vis-grid.vis-minor { border-color: #e6e9ec; }
+    .vis-time-axis .vis-text { color:#666; font-size:12px; }
+
+    /* weekend background already present; today line clearer */
+    .today { width:2px; background:#e53935; opacity:1; }
+    .today::after {
+      content:"Heute";
+      position:absolute; top:-18px; left:-16px; font-size:11px; color:#e53935;
+    }
+
+    /* task appearance – no outlines, soft filled background */
+    .vis-item.task { border:none !important; border-radius:8px !important; }
+    .vis-item.task .vis-item-content { padding:6px 8px; line-height:1.2; white-space:nowrap; overflow:visible; }
+    .task-title { font-weight:600; }
+    .task-resp { color:#666; font-size:11px; }
+
+    /* floating action button + modal */
+    .fab {
+      position: fixed; right: 24px; bottom: 24px;
+      background:#111; color:#fff; border:0; border-radius:20px; padding:10px 14px; cursor:pointer;
+      box-shadow:0 2px 8px rgba(0,0,0,.12);
+    }
+    .modal.hidden { display:none; }
+    .modal { position:fixed; inset:0; background:rgba(0,0,0,.3); display:flex; align-items:flex-end; justify-content:flex-end; }
+    .modal-card {
+      width:360px; background:#fff; border-radius:12px; margin:16px; padding:16px; box-shadow:0 8px 32px rgba(0,0,0,.16);
+      border:1px solid #e8eaee;
+    }
+    .modal-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+    .modal-title { font-weight:600; }
+    .modal-close { background:#fff; border:1px solid #ddd; border-radius:8px; width:28px; height:28px; cursor:pointer; }
+    .form-row { display:grid; grid-template-columns: 1fr auto; gap:8px; align-items:center; margin:10px 0; }
+    .form-row label { grid-column:1 / -1; font-size:12px; color:#555; }
+    .form-row input { border:1px solid #ddd; border-radius:8px; padding:6px 8px; }
+    .form-row button { border:1px solid #111; background:#111; color:#fff; border-radius:8px; padding:6px 10px; cursor:pointer; }
+    hr { border:none; border-top:1px solid #eee; margin:10px 0; }
   </style>
 </head>
 <body>
 <div class="wrap">
-  <h1 class="title">Projekt‑Zeitplan</h1>
 
   <!-- Kopfzeile -->
   <div class="head">
     <div class="left">
       <div class="cell"><div class="val" id="vKunde">Kunde</div></div>
       <div class="cell"><div class="val" id="vTitel">Titel</div></div>
-      <div class="cell"><div class="val" id="vDatum">Datum</div></div>
+      <div class="cell"><div class="val"><span>Stand: </span><span id="vDatum">Datum</span></div></div>
     </div>
     <div class="right">
       <div class="val">Off Office</div>
     </div>
   </div>
 
-  <!-- Toolbar -->
-  <div class="toolbar">
-    <label>Projekt-ID:&nbsp;<input id="projectId" type="number" style="width:120px" value="1"></label>
-    <button id="btnLoad">Laden</button>
-    <button id="btnToday" class="secondary">Heute</button>
-  </div>
+  <!-- Floating Options Button -->
+  <button id="btnOptions" class="fab">Options</button>
 
-  <!-- 16:9 Frame -->
-  <div class="frame">
-    <div class="bands">
-      <div class="row" id="months"></div>
-      <div class="row" id="weeks"></div>
+  <!-- Options Modal -->
+  <div id="optionsModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div class="modal-title">Optionen</div>
+        <button id="modalClose" class="modal-close">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label>Projekt-Titel laden</label>
+          <input id="inpTitle" type="text" placeholder="z.B. Website-Relaunch" />
+          <button id="btnLoadByTitle">Laden</button>
+        </div>
+        <div class="form-row">
+          <label>Projekt-ID laden (Fallback)</label>
+          <input id="inpId" type="number" min="1" placeholder="1" />
+          <button id="btnLoadById">Laden</button>
+        </div>
+        <hr />
+        <div class="form-row">
+          <label>Auf Projektjahr angleichen</label>
+          <input id="inpYear" type="number" min="2000" max="2100" placeholder="z.B. 2025" />
+          <button id="btnShiftYear">Verschieben</button>
+        </div>
+      </div>
     </div>
-    <div id="timeline"></div>
-    <div class="zebra" id="zebra"></div>
-    <div class="today" id="todayLine" style="display:none"></div>
   </div>
-
-  <div class="legend" id="legend"></div>
 </div>
 
 <script>
@@ -159,74 +208,94 @@ function positionToday(from, to){
 }
 
 let timeline;
+
+const CATEGORY_COLORS = ["#5B8DEF","#52C41A","#FAAD14","#EB5757","#8F65D0","#00BFB3","#FF7A45"];
+function colorFor(cat){
+  const i = Math.abs((cat||"").split("").reduce((a,c)=>a+c.charCodeAt(0),0)) % CATEGORY_COLORS.length;
+  return CATEGORY_COLORS[i];
+}
+
+async function renderData(data){
+  document.getElementById('vKunde').textContent = data.project?.kunde || "";
+  document.getElementById('vTitel').textContent = data.project?.titel || "";
+  document.getElementById('vDatum').textContent = data.project?.datum ? fmt(data.project.datum) : "";
+  const starts = data.tasks.map(t=>new Date(t.start));
+  const ends = data.tasks.map(t=>new Date(t.end_date || t.end || t.start));
+  if(starts.length===0){ return; }
+  const min = new Date(Math.min.apply(null, starts));
+  const max = new Date(Math.max.apply(null, ends));
+  const from = new Date(min.getTime() - 7*MS_DAY);
+  const to = new Date(max.getTime() + 7*MS_DAY);
+  const items = new vis.DataSet();
+  data.tasks.forEach((t,i)=>{
+    items.add({
+      id: t.id || "t"+i,
+      content: `<div class="task-title">${t.name}</div><div class="task-resp">${t.responsible||""}</div>`,
+      start: t.start,
+      end: t.end_date || t.end || t.start,
+      className: "task",
+      style: `background:${colorFor(t.category)}1f;`
+    });
+  });
+  weekendItems(from,to).forEach(w=>items.add(w));
+  const container = document.getElementById('timeline');
+  if(timeline){ timeline.destroy(); }
+  timeline = new vis.Timeline(container, items, {
+    stack: true, orientation: 'top', showMajorLabels: true,
+    zoomMin: MS_DAY*2, zoomMax: MS_DAY*365,
+    start: from, end: to, min: from, max: new Date(to.getTime()+MS_DAY),
+    selectable: false, margin: { item: 10, axis: 8 }, height:'100%'
+  });
+  timeline.redraw(); timeline.fit();
+  buildBands('months','weeks',from,to); drawZebra(); positionToday(from,to);
+  const categories = Array.from(new Set(data.tasks.map(t=>t.category))).filter(Boolean);
+  const legend = document.getElementById('legend'); legend.innerHTML = "";
+  categories.forEach(c=>{
+    const span = document.createElement('span');
+    span.innerHTML = `<span class="dot" style="background:${colorFor(c)}"></span>${c}`;
+    legend.appendChild(span);
+  });
+}
+
 async function loadProject(id){
   const res = await fetch(`${API_BASE}/load/${id}`);
   if(!res.ok){ alert("Projekt nicht gefunden"); return; }
   const data = await res.json();
   console.log("DATA", data);
-
-  document.getElementById('vKunde').textContent = data.project.kunde || "";
-  document.getElementById('vTitel').textContent = data.project.titel || "";
-  document.getElementById('vDatum').textContent = (data.project.datum? fmt(data.project.datum):"");
-
-  const starts = data.tasks.map(t=>new Date(t.start));
-  const ends = data.tasks.map(t=>new Date(t.end_date || t.end || t.start));
-  const min = new Date(Math.min.apply(null, starts));
-  const max = new Date(Math.max.apply(null, ends));
-  const from = new Date(min.getTime() - 7*MS_DAY);
-  const to = new Date(max.getTime() + 7*MS_DAY);
-
-  const categories = Array.from(new Set(data.tasks.map(t=>t.category))).filter(Boolean);
-  const colorMap = buildColorMap(categories);
-
-  const items = new vis.DataSet();
-  data.tasks.forEach((t,i)=>{
-    items.add({
-      id: t.id || "t"+i,
-      content: `<div style="font-size:12px">${t.name}<br><span style="color:#777">${t.responsible||""}</span></div>`,
-      start: t.start,
-      end: t.end_date || t.end || t.start,
-      className: "task",
-      style: `background:#fff;border:1px solid ${colorMap[t.category]||'#111'}`
-    });
-  });
-  weekendItems(from,to).forEach(w=>items.add(w));
-
-  const container = document.getElementById('timeline');
-  if(timeline){ timeline.destroy(); }
-  timeline = new vis.Timeline(container, items, {
-    stack: false,
-    orientation: 'top',
-    showMajorLabels: true,
-    zoomMin: MS_DAY*2,
-    zoomMax: MS_DAY*365,
-    start: from, end: to, min: from, max: new Date(to.getTime()+MS_DAY),
-    selectable: false, margin: { item: 8, axis: 8 }
-  });
-  timeline.redraw();
-  timeline.fit();
-
-  buildBands('months','weeks',from,to);
-  drawZebra();
-  positionToday(from,to);
-
-  const legend = document.getElementById('legend');
-  legend.innerHTML = "";
-  categories.forEach(c=>{
-    const span = document.createElement('span');
-    span.innerHTML = `<span class="dot" style="background:${colorMap[c]}"></span>${c}`;
-    legend.appendChild(span);
-  });
+  await renderData(data);
 }
 
-document.getElementById('btnLoad').addEventListener('click', ()=>{
-  const id = Number(document.getElementById('projectId').value || "1");
-  loadProject(id);
+// Modal / Options
+const modal = document.getElementById('optionsModal');
+document.getElementById('btnOptions').addEventListener('click', ()=> modal.classList.remove('hidden'));
+document.getElementById('modalClose').addEventListener('click', ()=> modal.classList.add('hidden'));
+document.getElementById('btnLoadById').addEventListener('click', async ()=>{
+  const id = Number(document.getElementById('inpId').value||"1");
+  await loadProject(id);
+  modal.classList.add('hidden');
 });
-document.getElementById('btnToday').addEventListener('click', ()=>{
-  const id = Number(document.getElementById('projectId').value || "1");
-  loadProject(id);
+document.getElementById('btnLoadByTitle').addEventListener('click', async ()=>{
+  const title = (document.getElementById('inpTitle').value||"").trim();
+  if(!title){ alert("Bitte Projekttitel eingeben."); return; }
+  const res = await fetch(`${API_BASE}/loadByTitle?title=${encodeURIComponent(title)}`);
+  if(!res.ok){ alert("Projekt nicht gefunden"); return; }
+  const data = await res.json();
+  await renderData(data);
+  modal.classList.add('hidden');
 });
+document.getElementById('btnShiftYear').addEventListener('click', async ()=>{
+  const id = Number(document.getElementById('inpId').value||"1");
+  const year = Number(document.getElementById('inpYear').value||new Date().getFullYear());
+  const res = await fetch(`${API_BASE}/shiftYear`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ projectId:id, year })
+  });
+  const ok = res.ok;
+  await loadProject(id);
+  modal.classList.add('hidden');
+  if(!ok) alert("Verschieben fehlgeschlagen");
+});
+
 loadProject(1);
 </script>
 </body>
